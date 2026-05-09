@@ -1,0 +1,355 @@
+// src/handlers/commands.js
+// Full command handling system
+
+const { Composer } = require('telegraf');
+const logger = require('../utils/logger');
+const userService = require('../services/userService');
+const habitService = require('../services/habitService');
+const streakService = require('../services/streakService');
+const { showMainMenu } = require('../scenes/onboardingScene');
+const { formatProgressMessage, formatStatsMessage } = require('../utils/formatters');
+
+const commands = new Composer();
+
+// ════════════════════════════════════════════════════════════
+// /START - Entry point and user detection
+// ════════════════════════════════════════════════════════════
+
+commands.command('start', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    logger.info(`User ${telegramId} sent /start`);
+
+    const user = await userService.findOrCreateUser(ctx.from);
+
+    if (user.is_new || !user.onboarding_completed) {
+      logger.info(`Triggering onboarding for user: ${telegramId}`);
+      await ctx.scene.enter('onboarding_welcome');
+    } else {
+      logger.info(`Returning user: ${telegramId}`);
+      const firstName = ctx.from.first_name || 'there';
+      await ctx.reply(`👋 Welcome back, ${firstName}!`);
+      await showMainMenu(ctx);
+    }
+
+  } catch (err) {
+    logger.error(`/start error: ${err.message}`);
+    await ctx.reply('❌ Error starting bot. Please try again.');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// /ADD_HABIT
+// ════════════════════════════════════════════════════════════
+
+commands.command('add_habit', async (ctx) => {
+  try {
+    logger.info(`User ${ctx.from.id} triggered /add_habit`);
+    await ctx.scene.enter('add_habit');
+  } catch (err) {
+    logger.error(`/add_habit error: ${err.message}`);
+    await ctx.reply('❌ Error. Try again.');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// /HABITS - Helper
+// ════════════════════════════════════════════════════════════
+
+async function listHabits(ctx) {
+  const telegramId = ctx.from.id;
+  const habits = await habitService.getActiveHabits(telegramId);
+
+  if (habits.length === 0) {
+    await ctx.reply(
+      '📋 No habits tracked yet.\n\nStart by clicking ➕ Add Habit!',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '➕ Add Your First Habit', callback_data: 'cmd_add_habit' }],
+          ],
+        },
+      }
+    );
+    return;
+  }
+
+  let message = '📋 YOUR ACTIVE HABITS\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n';
+  habits.forEach((habit, index) => {
+    const freq = habit.frequency === 'daily' ? 'Daily' : `${habit.frequency_target}x/week`;
+    message += `${index + 1}. ${habit.name} (${freq})\n`;
+  });
+  message += `\n━━━━━━━━━━━━━━━━━━━━━━\nTotal: ${habits.length} habit(s)`;
+
+  await ctx.reply(message, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ Mark Done', callback_data: 'cmd_mark_done' }],
+        [{ text: '📊 View Progress', callback_data: 'cmd_progress' }],
+        [{ text: '➕ Add New Habit', callback_data: 'cmd_add_habit' }],
+      ],
+    },
+  });
+}
+
+commands.command('habits', async (ctx) => {
+  try {
+    logger.info(`User ${ctx.from.id} requesting habit list`);
+    await listHabits(ctx);
+  } catch (err) {
+    logger.error(`/habits error: ${err.message}`);
+    await ctx.reply('❌ Error loading habits.');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// /DONE - Mark habit complete
+// ════════════════════════════════════════════════════════════
+
+commands.command('done', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const args = ctx.message.text.split(' ').slice(1);
+    const habitName = args.join(' ').toLowerCase().trim();
+
+    if (habitName) {
+      logger.info(`User ${telegramId} marking done: ${habitName}`);
+
+      const habit = await habitService.findHabitByName(telegramId, habitName);
+      if (!habit) {
+        await ctx.reply(
+          `❌ Habit "${habitName}" not found.\n\nUse /habits to see your habits.`
+        );
+        return;
+      }
+
+      const alreadyDone = await streakService.isHabitCompleteToday(telegramId, habit.id);
+      if (alreadyDone) {
+        await ctx.reply(`✅ ${habit.name} already marked complete today! Keep it up! 💪`);
+        return;
+      }
+
+      await habitService.markHabitComplete(telegramId, habit.id);
+      const streak = await streakService.calculateStreak(telegramId, habit.id);
+      const weeklyRate = await streakService.getWeeklyCompletionRate(telegramId, habit.id);
+
+      const streakEmoji = streak >= 30 ? '🔥🔥🔥' : streak >= 7 ? '🔥' : '✅';
+      await ctx.reply(
+        `${streakEmoji} ${habit.name} marked complete!\n\n` +
+        `📊 Streak: ${streak} day${streak !== 1 ? 's' : ''}\n` +
+        `📅 This week: ${weeklyRate}%`
+      );
+
+    } else {
+      await ctx.scene.enter('mark_done');
+    }
+
+  } catch (err) {
+    logger.error(`/done error: ${err.message}`);
+    await ctx.reply('❌ Error marking habit. Try again.');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// /PROGRESS
+// ════════════════════════════════════════════════════════════
+
+async function sendProgress(ctx) {
+  const telegramId = ctx.from.id;
+  const habits = await habitService.getActiveHabits(telegramId);
+
+  if (habits.length === 0) {
+    await ctx.reply('No habits tracked yet. Add your first habit! /add_habit');
+    return;
+  }
+
+  const progressMessage = await formatProgressMessage(telegramId, habits);
+  await ctx.reply(progressMessage, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ Mark Done', callback_data: 'cmd_mark_done' }],
+        [{ text: '📈 Full Stats', callback_data: 'cmd_stats' }],
+      ],
+    },
+  });
+}
+
+commands.command('progress', async (ctx) => {
+  try {
+    logger.info(`User ${ctx.from.id} requesting progress`);
+    await sendProgress(ctx);
+  } catch (err) {
+    logger.error(`/progress error: ${err.message}`);
+    await ctx.reply('❌ Error loading progress.');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// /DELETE_HABIT
+// ════════════════════════════════════════════════════════════
+
+commands.command('delete_habit', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const args = ctx.message.text.split(' ').slice(1);
+    const habitName = args.join(' ').toLowerCase().trim();
+
+    if (!habitName) {
+      await ctx.reply('Usage: /delete_habit [habit name]\nExample: /delete_habit exercise');
+      return;
+    }
+
+    const habit = await habitService.findHabitByName(telegramId, habitName);
+    if (!habit) {
+      await ctx.reply(`❌ Habit "${habitName}" not found.`);
+      return;
+    }
+
+    await ctx.reply(
+      `⚠️ Delete "${habit.name}"?\n\nThis will stop tracking this habit (history preserved).`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🗑️ Yes, Delete', callback_data: `confirm_delete_${habit.id}` },
+              { text: '❌ Cancel', callback_data: 'cancel_delete' }
+            ],
+          ],
+        },
+      }
+    );
+
+  } catch (err) {
+    logger.error(`/delete_habit error: ${err.message}`);
+    await ctx.reply('❌ Error. Try again.');
+  }
+});
+
+commands.action(/confirm_delete_(\d+)/, async (ctx) => {
+  try {
+    const habitId = parseInt(ctx.match[1]);
+    await habitService.deactivateHabit(ctx.from.id, habitId);
+    await ctx.deleteMessage();
+    await ctx.reply('✅ Habit removed from tracking.\n(History preserved for your records)');
+    ctx.answerCbQuery('Habit deleted');
+  } catch (err) {
+    logger.error(`Delete confirmation error: ${err.message}`);
+  }
+});
+
+commands.action('cancel_delete', async (ctx) => {
+  await ctx.deleteMessage();
+  await ctx.reply('✅ Deletion cancelled. Habit still active.');
+  ctx.answerCbQuery('Cancelled');
+});
+
+// ════════════════════════════════════════════════════════════
+// /REMINDER_TIME
+// ════════════════════════════════════════════════════════════
+
+commands.command('reminder_time', async (ctx) => {
+  try {
+    const telegramId = ctx.from.id;
+    const args = ctx.message.text.split(' ');
+    const timeStr = args[1];
+
+    if (!timeStr || !/^\d{2}:\d{2}$/.test(timeStr)) {
+      await ctx.reply(
+        '⏰ Set Reminder Time\n\nFormat: /reminder_time HH:MM\nExample: /reminder_time 08:00\n\nUse 24-hour format (08:00 = 8 AM, 20:00 = 8 PM)'
+      );
+      return;
+    }
+
+    await userService.updateReminderTime(telegramId, timeStr);
+    await ctx.reply(`✅ Reminder time set to ${timeStr} UTC\n\nYou'll get a daily reminder at this time listing your habits.`);
+
+  } catch (err) {
+    logger.error(`/reminder_time error: ${err.message}`);
+    await ctx.reply('❌ Error setting reminder time.');
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// /HELP
+// ════════════════════════════════════════════════════════════
+
+commands.command('help', async (ctx) => {
+  await ctx.reply(
+`HabitBuddy Commands:
+
+/start - Welcome / main menu
+/add_habit - Add a new habit
+/habits - List active habits
+/done [name] - Mark a habit complete (or pick from list)
+/progress - View streaks and weekly %
+/delete_habit [name] - Remove a habit
+/reminder_time HH:MM - Set daily reminder time (UTC)
+/help - This message`
+  );
+});
+
+// ════════════════════════════════════════════════════════════
+// MAIN MENU REPLY-KEYBOARD BUTTONS
+// ════════════════════════════════════════════════════════════
+
+commands.hears('➕ Add Habit', (ctx) => ctx.scene.enter('add_habit'));
+commands.hears('📋 My Habits', listHabits);
+commands.hears('✅ Mark Done', (ctx) => ctx.scene.enter('mark_done'));
+commands.hears('📊 Progress', sendProgress);
+commands.hears('📈 Stats', async (ctx) => {
+  const habits = await habitService.getActiveHabits(ctx.from.id);
+  const stats = await formatStatsMessage(ctx.from.id, habits);
+  await ctx.reply(stats);
+});
+commands.hears('⚙️ Settings', async (ctx) => {
+  await ctx.reply('⚙️ SETTINGS\n\nAvailable settings:\n/reminder_time [HH:MM] - Set reminder time (UTC)\n/delete_habit [name] - Remove a habit');
+});
+
+// ════════════════════════════════════════════════════════════
+// INLINE BUTTON CALLBACKS
+// ════════════════════════════════════════════════════════════
+
+commands.action('cmd_add_habit', async (ctx) => {
+  try { await ctx.deleteMessage(); } catch (_) {}
+  await ctx.scene.enter('add_habit');
+  ctx.answerCbQuery();
+});
+
+commands.action('cmd_mark_done', async (ctx) => {
+  try { await ctx.deleteMessage(); } catch (_) {}
+  await ctx.scene.enter('mark_done');
+  ctx.answerCbQuery();
+});
+
+commands.action('cmd_progress', async (ctx) => {
+  try { await ctx.deleteMessage(); } catch (_) {}
+  await sendProgress(ctx);
+  ctx.answerCbQuery();
+});
+
+commands.action('cmd_stats', async (ctx) => {
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const habits = await habitService.getActiveHabits(ctx.from.id);
+  const msg = await formatStatsMessage(ctx.from.id, habits);
+  await ctx.reply(msg);
+  ctx.answerCbQuery();
+});
+
+// Unknown text fallback (must be last)
+commands.on('text', async (ctx) => {
+  await ctx.reply(
+    '❓ Unknown command.\n\nUse the menu buttons or:\n/start - Main menu\n/help - All commands',
+    {
+      reply_markup: {
+        keyboard: [
+          [{ text: '➕ Add Habit' }, { text: '📋 My Habits' }],
+          [{ text: '✅ Mark Done' }, { text: '📊 Progress' }],
+          [{ text: '📈 Stats' }, { text: '⚙️ Settings' }],
+        ],
+        resize_keyboard: true,
+      },
+    }
+  );
+});
+
+module.exports = commands;
