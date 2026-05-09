@@ -1,0 +1,25 @@
+{
+  "name": "habitbuddy",
+  "version": "1.0.0",
+  "description": "HabitBuddy Telegram Bot - Habit Tracking System",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "node -e \"require('./src/config/database').testConnection()\"",
+    "db:start": "docker-compose up -d",
+    "db:stop": "docker-compose down",
+    "db:reset": "docker-compose down -v && docker-compose up -d",
+    "db:logs": "docker-compose logs -f postgres",
+    "db:shell": "docker exec -it habitbuddy_postgres psql -U habitbuddy_user -d habitbuddy_db"
+  },
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "pg": "^8.11.0",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
