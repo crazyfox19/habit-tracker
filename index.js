@@ -47,6 +47,18 @@ async function startBot() {
 
     startScheduler(bot);
 
+    await bot.telegram.setMyCommands([
+      { command: 'start',          description: 'Start the bot or open the main menu' },
+      { command: 'add_habit',      description: 'Create a new habit' },
+      { command: 'habits',         description: 'List your active habits' },
+      { command: 'done',           description: 'Mark a habit as complete for today' },
+      { command: 'progress',       description: 'View streaks and weekly progress' },
+      { command: 'delete_habit',   description: 'Delete a habit (history kept)' },
+      { command: 'reminder_time',  description: 'Set your daily reminder time (UTC)' },
+      { command: 'help',           description: 'Show all commands' },
+    ]);
+    logger.success('✅ Bot command menu registered');
+
     process.on('SIGINT', async () => {
       logger.info('Shutting down...');
       await bot.stop('SIGINT');

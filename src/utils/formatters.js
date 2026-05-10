@@ -1,5 +1,38 @@
 // src/utils/formatters.js
+const { Markup } = require('telegraf');
 const streakService = require('../services/streakService');
+
+const WELCOME_MESSAGE =
+`👋 *Welcome to HabitBuddy!*
+
+I'm your personal habit-tracking companion. I help you build daily habits, track streaks, and stay consistent with gentle reminders.
+
+Here's what I can do:
+
+📌 *Create habits* — track anything from "drink water" to "read 10 pages"
+✅ *Mark daily progress* — one tap to log a completed habit
+🔥 *Build streaks* — see how many days in a row you've stayed consistent
+📊 *Weekly stats* — view your completion rate and progress
+⏰ *Daily reminders* — get a nudge at your chosen time
+
+Let's get you set up — I'll walk you through your first habit next.`;
+
+function buildMainMenu() {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback('➕ Add Habit',  'add_habit'),
+      Markup.button.callback('📋 My Habits',  'habits'),
+    ],
+    [
+      Markup.button.callback('✅ Mark Done',  'done'),
+      Markup.button.callback('📊 Progress',   'progress'),
+    ],
+    [
+      Markup.button.callback('⏰ Reminder',   'reminder_time'),
+      Markup.button.callback('❓ Help',       'help'),
+    ],
+  ]);
+}
 
 async function formatProgressMessage(telegramId, habits) {
   let out = '📊 YOUR HABIT PROGRESS\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n';
@@ -35,4 +68,4 @@ async function formatStatsMessage(telegramId, habits) {
   );
 }
 
-module.exports = { formatProgressMessage, formatStatsMessage };
+module.exports = { formatProgressMessage, formatStatsMessage, WELCOME_MESSAGE, buildMainMenu };

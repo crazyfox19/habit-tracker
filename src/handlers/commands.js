@@ -7,7 +7,7 @@ const userService = require('../services/userService');
 const habitService = require('../services/habitService');
 const streakService = require('../services/streakService');
 const { showMainMenu } = require('../scenes/onboardingScene');
-const { formatProgressMessage, formatStatsMessage } = require('../utils/formatters');
+const { formatProgressMessage, formatStatsMessage, WELCOME_MESSAGE, buildMainMenu } = require('../utils/formatters');
 
 const commands = new Composer();
 
@@ -22,14 +22,20 @@ commands.command('start', async (ctx) => {
 
     const user = await userService.findOrCreateUser(ctx.from);
 
-    if (user.is_new || !user.onboarding_completed) {
-      logger.info(`Triggering onboarding for user: ${telegramId}`);
+    if (user.is_new) {
+      logger.info(`First-time user: ${telegramId}`);
+      await ctx.reply(WELCOME_MESSAGE, { parse_mode: 'Markdown' });
+      await ctx.scene.enter('onboarding_welcome');
+    } else if (!user.onboarding_completed) {
+      logger.info(`Resuming onboarding for user: ${telegramId}`);
       await ctx.scene.enter('onboarding_welcome');
     } else {
       logger.info(`Returning user: ${telegramId}`);
       const firstName = ctx.from.first_name || 'there';
-      await ctx.reply(`👋 Welcome back, ${firstName}!`);
-      await showMainMenu(ctx);
+      await ctx.reply(
+        `Welcome back, ${firstName} 👋\nWhat would you like to do?`,
+        buildMainMenu()
+      );
     }
 
   } catch (err) {
@@ -303,6 +309,54 @@ commands.hears('📈 Stats', async (ctx) => {
 });
 commands.hears('⚙️ Settings', async (ctx) => {
   await ctx.reply('⚙️ SETTINGS\n\nAvailable settings:\n/reminder_time [HH:MM] - Set reminder time (UTC)\n/delete_habit [name] - Remove a habit');
+});
+
+// ════════════════════════════════════════════════════════════
+// MAIN MENU INLINE BUTTON CALLBACKS (returning users)
+// Each callback_data matches a slash command name (without slash).
+// ════════════════════════════════════════════════════════════
+
+commands.action('add_habit', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.scene.enter('add_habit');
+});
+
+commands.action('habits', async (ctx) => {
+  await ctx.answerCbQuery();
+  await listHabits(ctx);
+});
+
+commands.action('done', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.scene.enter('mark_done');
+});
+
+commands.action('progress', async (ctx) => {
+  await ctx.answerCbQuery();
+  await sendProgress(ctx);
+});
+
+commands.action('reminder_time', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+    '⏰ Set Reminder Time\n\nFormat: /reminder_time HH:MM\nExample: /reminder_time 08:00\n\nUse 24-hour format (08:00 = 8 AM, 20:00 = 8 PM)'
+  );
+});
+
+commands.action('help', async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(
+`HabitBuddy Commands:
+
+/start - Welcome / main menu
+/add_habit - Add a new habit
+/habits - List active habits
+/done [name] - Mark a habit complete (or pick from list)
+/progress - View streaks and weekly %
+/delete_habit [name] - Remove a habit
+/reminder_time HH:MM - Set daily reminder time (UTC)
+/help - This message`
+  );
 });
 
 // ════════════════════════════════════════════════════════════
