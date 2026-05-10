@@ -5,22 +5,34 @@ require('dotenv').config();
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
 
-// Create connection pool
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  user: process.env.DB_USER || 'habitbuddy_user',
-  password: process.env.DB_PASSWORD || 'habitbuddy_pass_2024',
-  database: process.env.DB_NAME || 'habitbuddy_db',
+// Railway-managed Postgres requires SSL on its public proxy host.
+// Internal (*.railway.internal) does not require SSL but accepts it.
+const needsSSL = process.env.NODE_ENV === 'production'
+  || /\.proxy\.rlwy\.net/i.test(process.env.DATABASE_URL || '')
+  || /\.proxy\.rlwy\.net/i.test(process.env.DB_HOST || '');
 
-  // Railway-managed Postgres requires SSL in production
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+const sslConfig = needsSSL ? { rejectUnauthorized: false } : false;
 
-  // Pool configuration
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
+// If DATABASE_URL is provided (Railway default), prefer it; otherwise fall back to discrete DB_* vars
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: sslConfig,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    })
+  : new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT || '5432'),
+      user: process.env.DB_USER || 'habitbuddy_user',
+      password: process.env.DB_PASSWORD || 'habitbuddy_pass_2024',
+      database: process.env.DB_NAME || 'habitbuddy_db',
+      ssl: sslConfig,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
 
 // Handle pool-level errors
 pool.on('error', (err) => {
