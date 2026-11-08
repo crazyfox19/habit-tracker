@@ -12,9 +12,8 @@ const pool = new Pool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  ssl: {
-    rejectUnauthorized: false
-  },
+  // Coolify's internal Postgres has no SSL; set DB_SSL=true only for hosted DBs that require it
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 
   // Pool configuration
   max: 20,
