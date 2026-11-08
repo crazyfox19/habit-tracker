@@ -4,6 +4,7 @@
 const cron = require('node-cron');
 const db = require('../config/database');
 const logger = require('../utils/logger');
+const { buildQuickDoneKeyboard } = require('../utils/formatters');
 
 let botRef = null;
 
@@ -63,12 +64,14 @@ async function sendReminder(userId) {
       message += `• ${habit.name} (${freq})\n  Last: ${lastText}\n\n`;
     }
 
-    message += '━━━━━━━━━━━━━━━━━━━━━━\nTap below to mark complete!';
+    message += '━━━━━━━━━━━━━━━━━━━━━━\nTap a habit below to mark it complete!';
+
+    const quickDoneRows = await buildQuickDoneKeyboard(telegramId, habits);
 
     await botRef.telegram.sendMessage(telegramId, message, {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '✅ Mark Habit Done', callback_data: 'cmd_mark_done' }],
+          ...quickDoneRows,
           [{ text: '📊 View Progress', callback_data: 'cmd_progress' }],
         ],
       },
@@ -139,8 +142,12 @@ function startScheduler(bot) {
   logger.info('📅 Starting scheduler...');
 
   cron.schedule('* * * * *', async () => {
-    logger.debug('🕐 Checking reminders...');
-    await checkAndSendReminders();
+    try {
+      logger.debug('🕐 Checking reminders...');
+      await checkAndSendReminders();
+    } catch (err) {
+      logger.error(`Scheduler tick failed (will retry next minute): ${err.message}`);
+    }
   }, {
     timezone: 'UTC',
   });

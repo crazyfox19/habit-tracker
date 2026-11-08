@@ -34,6 +34,17 @@ function buildMainMenu() {
   ]);
 }
 
+async function buildQuickDoneKeyboard(telegramId, habits) {
+  const rows = [];
+  for (const h of habits) {
+    const done = await streakService.isHabitCompleteToday(telegramId, h.id);
+    if (!done) {
+      rows.push([{ text: `✅ ${h.name}`, callback_data: `quickdone_${h.id}` }]);
+    }
+  }
+  return rows;
+}
+
 async function formatProgressMessage(telegramId, habits) {
   let out = '📊 YOUR HABIT PROGRESS\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n';
   for (const h of habits) {
@@ -68,4 +79,4 @@ async function formatStatsMessage(telegramId, habits) {
   );
 }
 
-module.exports = { formatProgressMessage, formatStatsMessage, WELCOME_MESSAGE, buildMainMenu };
+module.exports = { formatProgressMessage, formatStatsMessage, WELCOME_MESSAGE, buildMainMenu, buildQuickDoneKeyboard };

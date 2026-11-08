@@ -109,6 +109,18 @@ index.js
 5. Deploy. The DB module auto-enables SSL when `NODE_ENV=production`.
 6. Stop the local bot before testing production — Telegram does not allow two pollers on the same token.
 
+## Running mode: polling vs webhook
+
+By default the bot runs in **long-polling** mode — no public URL required, works anywhere.
+
+To switch to **webhook** mode (recommended once the bot is deployed behind a public HTTPS domain, e.g. via Coolify):
+
+1. Set `WEBHOOK_URL` to your public base URL, e.g. `WEBHOOK_URL=https://habitbot.yourdomain.com` (no trailing path — the bot appends `/telegram-webhook` itself).
+2. Set `PORT` if your platform requires a specific port (Coolify/Railway usually inject this automatically).
+3. Restart the bot. On boot it registers the webhook with Telegram and serves it from an Express server alongside a `/health` endpoint.
+
+Only run **one** instance of the bot against a given `BOT_TOKEN` at a time — polling and webhook mode can't run concurrently on the same token.
+
 ## Notes
 
 - All date math uses **UTC**. The `reminder_time` column stores a UTC `TIME`. Per-user timezone awareness is wired (`users.timezone`) but defaults to UTC; localized reminders work as long as the user's timezone is set in the database.

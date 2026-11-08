@@ -7,7 +7,7 @@ const userService = require('../services/userService');
 const habitService = require('../services/habitService');
 const streakService = require('../services/streakService');
 const { showMainMenu } = require('../scenes/onboardingScene');
-const { formatProgressMessage, formatStatsMessage, WELCOME_MESSAGE, buildMainMenu } = require('../utils/formatters');
+const { formatProgressMessage, formatStatsMessage, WELCOME_MESSAGE, buildMainMenu, buildQuickDoneKeyboard } = require('../utils/formatters');
 
 const commands = new Composer();
 
@@ -87,10 +87,12 @@ async function listHabits(ctx) {
   });
   message += `\n━━━━━━━━━━━━━━━━━━━━━━\nTotal: ${habits.length} habit(s)`;
 
+  const quickDoneRows = await buildQuickDoneKeyboard(telegramId, habits);
+
   await ctx.reply(message, {
     reply_markup: {
       inline_keyboard: [
-        [{ text: '✅ Mark Done', callback_data: 'cmd_mark_done' }],
+        ...quickDoneRows,
         [{ text: '📊 View Progress', callback_data: 'cmd_progress' }],
         [{ text: '➕ Add New Habit', callback_data: 'cmd_add_habit' }],
       ],
@@ -170,10 +172,11 @@ async function sendProgress(ctx) {
   }
 
   const progressMessage = await formatProgressMessage(telegramId, habits);
+  const quickDoneRows = await buildQuickDoneKeyboard(telegramId, habits);
   await ctx.reply(progressMessage, {
     reply_markup: {
       inline_keyboard: [
-        [{ text: '✅ Mark Done', callback_data: 'cmd_mark_done' }],
+        ...quickDoneRows,
         [{ text: '📈 Full Stats', callback_data: 'cmd_stats' }],
       ],
     },
@@ -357,6 +360,39 @@ commands.action('help', async (ctx) => {
 /reminder_time HH:MM - Set daily reminder time (UTC)
 /help - This message`
   );
+});
+
+// ════════════════════════════════════════════════════════════
+// QUICK-DONE - one-tap completion from /habits, /progress, and reminders
+// ════════════════════════════════════════════════════════════
+
+commands.action(/quickdone_(\d+)/, async (ctx) => {
+  try {
+    const habitId = parseInt(ctx.match[1]);
+    const telegramId = ctx.from.id;
+
+    const alreadyDone = await streakService.isHabitCompleteToday(telegramId, habitId);
+    if (alreadyDone) {
+      ctx.answerCbQuery('Already marked complete today! 😊');
+      return;
+    }
+
+    await habitService.markHabitComplete(telegramId, habitId);
+    const habit = await habitService.getHabitById(habitId);
+    const streak = await streakService.calculateStreak(telegramId, habitId);
+    const weeklyRate = await streakService.getWeeklyCompletionRate(telegramId, habitId);
+    const streakEmoji = streak >= 30 ? '🔥🔥🔥' : streak >= 7 ? '🔥' : '✅';
+
+    ctx.answerCbQuery(`${habit.name} marked complete!`);
+    await ctx.reply(
+      `${streakEmoji} ${habit.name} marked complete!\n\n` +
+      `📊 Streak: ${streak} day${streak !== 1 ? 's' : ''}\n` +
+      `📅 This week: ${weeklyRate}%`
+    );
+  } catch (err) {
+    logger.error(`quickdone error: ${err.message}`);
+    ctx.answerCbQuery('❌ Error marking habit.').catch(() => {});
+  }
 });
 
 // ════════════════════════════════════════════════════════════
